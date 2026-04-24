@@ -1,14 +1,66 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { WeixinApiOptions } from "../api/api.js";
 import { logger } from "../util/logger.js";
 import { getMimeFromFilename } from "../media/mime.js";
-import { sendFileMessageWeixin, sendImageMessageWeixin, sendVideoMessageWeixin } from "./send.js";
-import { uploadFileAttachmentToWeixin, uploadFileToWeixin, uploadVideoToWeixin } from "../cdn/upload.js";
+import {
+  sendFileMessageWeixin,
+  sendImageMessageWeixin,
+  sendVideoMessageWeixin,
+  sendVoiceMessageWeixin,
+} from "./send.js";
+import {
+  uploadFileAttachmentToWeixin,
+  uploadFileToWeixin,
+  uploadVideoToWeixin,
+  uploadVoiceToWeixin,
+} from "../cdn/upload.js";
+
+function isAudioMime(mime: string): boolean {
+  return mime.startsWith("audio/");
+}
+
+/** 与 Tencent/openclaw-weixin PR#9 对齐：仅部分格式可走原生语音条，其余仍走文件附件。 */
+async function deriveVoiceMeta(
+  filePath: string,
+  mime: string,
+): Promise<{
+  encode_type: number;
+  bits_per_sample?: number;
+  sample_rate?: number;
+  playtime?: number;
+} | null> {
+  const stat = await fs.stat(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  let encode_type: number | undefined;
+  let sample_rate: number | undefined;
+  let bits_per_sample: number | undefined;
+
+  if (ext === ".silk") {
+    encode_type = 6;
+    sample_rate = 24_000;
+    bits_per_sample = 16;
+  } else if (ext === ".mp3" || mime === "audio/mpeg") {
+    encode_type = 7;
+  } else if (ext === ".ogg" || mime === "audio/ogg") {
+    encode_type = 8;
+  } else {
+    return null;
+  }
+
+  return {
+    encode_type,
+    ...(bits_per_sample == null ? {} : { bits_per_sample }),
+    ...(sample_rate == null ? {} : { sample_rate }),
+    playtime: Math.max(1, Math.round(stat.size / 160)),
+  };
+}
 
 /**
  * Upload a local file and send it as a weixin message, routing by MIME type:
  *   video/*  → uploadVideoToWeixin        + sendVideoMessageWeixin
  *   image/*  → uploadFileToWeixin         + sendImageMessageWeixin
+ *   audio/* (silk/mp3/ogg) → uploadVoiceToWeixin + sendVoiceMessageWeixin（原生语音条）
  *   else     → uploadFileAttachmentToWeixin + sendFileMessageWeixin
  *
  * Used by both the auto-reply deliver path (monitor.ts) and the outbound
@@ -51,6 +103,29 @@ export async function sendWeixinMediaFile(params: {
       `[weixin] sendWeixinMediaFile: image upload done filekey=${uploaded.filekey} size=${uploaded.fileSize}`,
     );
     return sendImageMessageWeixin({ to, text, uploaded, opts });
+  }
+
+  if (isAudioMime(mime)) {
+    const voiceMeta = await deriveVoiceMeta(filePath, mime);
+    if (voiceMeta) {
+      logger.info(
+        `[weixin] sendWeixinMediaFile: uploading voice filePath=${filePath} to=${to} encodeType=${voiceMeta.encode_type}`,
+      );
+      const uploaded = await uploadVoiceToWeixin({
+        filePath,
+        toUserId: to,
+        opts: uploadOpts,
+        cdnBaseUrl,
+        voiceMeta,
+      });
+      logger.info(
+        `[weixin] sendWeixinMediaFile: voice upload done filekey=${uploaded.filekey} size=${uploaded.fileSize}`,
+      );
+      return sendVoiceMessageWeixin({ to, text, uploaded, opts });
+    }
+    logger.warn(
+      `[weixin] sendWeixinMediaFile: audio filePath=${filePath} mime=${mime} not routable as native voice, falling back to file attachment`,
+    );
   }
 
   // File attachment: pdf, doc, zip, etc.

@@ -21,6 +21,13 @@ export type UploadedFileInfo = {
   fileSize: number;
   /** Ciphertext file size in bytes (AES-128-ECB with PKCS7 padding); use for ImageItem.hd_size / mid_size */
   fileSizeCiphertext: number;
+  /** 语音上传时由调用方提供，供 `sendVoiceMessageWeixin` 写入 `voice_item`。 */
+  voiceMeta?: {
+    encode_type: number;
+    bits_per_sample?: number;
+    sample_rate?: number;
+    playtime?: number;
+  };
 };
 
 /**
@@ -154,4 +161,26 @@ export async function uploadFileAttachmentToWeixin(params: {
     mediaType: UploadMediaType.FILE,
     label: "uploadFileAttachmentToWeixin",
   });
+}
+
+/** 上传本地语音文件至微信 CDN；`voiceMeta` 须与文件编码一致（见 ilink `VoiceItem.encode_type`）。 */
+export async function uploadVoiceToWeixin(params: {
+  filePath: string;
+  toUserId: string;
+  opts: WeixinApiOptions;
+  cdnBaseUrl: string;
+  voiceMeta: {
+    encode_type: number;
+    bits_per_sample?: number;
+    sample_rate?: number;
+    playtime?: number;
+  };
+}): Promise<UploadedFileInfo> {
+  const uploaded = await uploadMediaToCdn({
+    ...params,
+    mediaType: UploadMediaType.VOICE,
+    label: "uploadVoiceToWeixin",
+  });
+  uploaded.voiceMeta = params.voiceMeta;
+  return uploaded;
 }

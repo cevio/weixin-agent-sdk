@@ -33,7 +33,11 @@ export interface ChatRequest {
 export interface ChatResponse {
   /** Reply text (may contain markdown — will be converted to plain text before sending). */
   text?: string;
-  /** Reply media file. */
+  /**
+   * 回复媒体。`type` 为 `image` / `video` / `file` 时行为不变。
+   * 当本地路径或下载临时文件为 **`.silk` / `.mp3` / `.ogg`**（或对应 MIME）时，
+   * 出站会走微信 **原生语音条（VOICE）**；其它音频仍按文件附件发送。
+   */
   media?: {
     type: "image" | "video" | "file";
     /** Local file path or HTTPS URL. */
