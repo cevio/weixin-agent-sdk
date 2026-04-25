@@ -65,6 +65,12 @@ function extractTextBody(itemList?: MessageItem[]): string {
   return "";
 }
 
+/** `item_list` 中是否出现过语音条（不论是否有转写文本）。 */
+function itemListHasVoice(itemList?: MessageItem[]): boolean {
+  if (!itemList?.length) return false;
+  return itemList.some((i) => i.type === MessageItemType.VOICE);
+}
+
 /** Find the first downloadable media item from a message. */
 function findMediaItem(itemList?: MessageItem[]): MessageItem | undefined {
   if (!itemList?.length) return undefined;
@@ -177,6 +183,7 @@ export async function processOneMessage(
   const request: ChatRequest = {
     conversationId: full.from_user_id ?? "",
     text: bodyFromItemList(full.item_list),
+    inboundVoice: itemListHasVoice(full.item_list),
     media,
   };
 
@@ -204,7 +211,7 @@ export async function processOneMessage(
   try {
     const response = await deps.agent.chat(request);
 
-    if (response.media) {
+    if (response.media?.url) {
       let filePath: string;
       const mediaUrl = response.media.url;
       if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
@@ -228,6 +235,17 @@ export async function processOneMessage(
         text: markdownToPlainText(response.text),
         opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
       });
+    } else {
+      deps.errLog(
+        `[weixin] processOneMessage: agent 返回既无有效 media.url 也无 text，to=${to} — 请检查 Agent.chat 返回值`,
+      );
+      if (contextToken) {
+        await sendMessageWeixin({
+          to,
+          text: "（未能生成可发送的回复，请稍后再试。）",
+          opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+        });
+      }
     }
   } catch (err) {
     logger.error(`processOneMessage: agent or send failed: ${err instanceof Error ? err.stack ?? err.message : JSON.stringify(err)}`);

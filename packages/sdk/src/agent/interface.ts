@@ -18,6 +18,11 @@ export interface ChatRequest {
   conversationId: string;
   /** Text content of the message. */
   text: string;
+  /**
+   * 本条微信消息是否包含语音条（`VOICE` item），含「仅有转写、未下载音频」的情况。
+   * 业务侧据此决定是否对助手回复做 TTS 等。
+   */
+  inboundVoice?: boolean;
   /** Attached media file (image, audio, video, or generic file). */
   media?: {
     type: "image" | "audio" | "video" | "file";

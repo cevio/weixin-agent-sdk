@@ -1,6 +1,6 @@
 {
   "name": "@evio/weixin-agent-sdk",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "WeChat ↔ AI Agent bridge SDK — connect any AI backend to WeChat via a simple Agent interface",
   "license": "MIT",
   "type": "module",
